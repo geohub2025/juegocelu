@@ -145,6 +145,7 @@ bindTouchButton("btnMega", ()=> keys["x"]=true, ()=> keys["x"]=false);
 document.getElementById("startScreen").addEventListener("touchstart", ()=>{
   if(!started) startGame();
 });
+
 // Imágenes
 const shipImg = new Image(); shipImg.src = 'ship.png';
 const shipDamageImg = new Image(); shipDamageImg.src = 'shipdamage.png';
@@ -368,17 +369,11 @@ function draw(){
 
   ctx.drawImage(shipImg,ship.x,ship.y,ship.width,ship.height);
 }
-
 function gameLoop(){
   update();
   draw();
   requestAnimationFrame(gameLoop);
 }
-</script>
-</body>
-</html>
-
-
 </script>
 </body>
 </html>
