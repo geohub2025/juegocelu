@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>POWER-MILEY</title>
+
+<style>
+body {
+  margin: 0;
+  overflow: hidden;
+  background: url('sky.png') no-repeat center center fixed;
+  background-size: cover;
+  font-family: Arial, sans-serif;
+  color: white;
+}
+
+canvas {
+  display: block;
+  margin: 0 auto;
+  touch-action: none;
+}
+
+/* Pantalla inicio */
+#startScreen {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.85);
+  text-align: center;
+  padding-top: 100px;
+  z-index: 10;
+}
+
+/* --- CONTROLES TÁCTILES --- */
+#touchControls {
+  position: fixed;
+  bottom: 20px;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.touch-btn {
+  width: 90px;
+  height: 90px;
+  background: rgba(255,255,255,0.15);
+  border: 2px solid white;
+  border-radius: 50%;
+  margin: 10px;
+  pointer-events: auto;
+  touch-action: none;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 26px;
+  font-weight: bold;
+  user-select: none;
+  color: cyan;
+}
+</style>
+</head>
+
+<body>
+
+<!-- Pantalla de inicio -->
+<div id="startScreen">
+  <h1>POWER-MILEY</h1>
+  <p>Presiona ENTER o TOCA para comenzar</p>
+</div>
+
+<!-- HUD -->
+<div id="hud" style="display:none; position:absolute; top:10px; left:10px;">
+  <div class="label">VIDA</div>
+  <div class="bar"><div id="lifeFill" class="fill"></div></div>
+  <div class="label">ENERGÍA</div>
+  <div class="bar"><div id="energyFill" class="fill"></div></div>
+  <div id="score">Puntaje: 0</div>
+</div>
+
+<!-- CONTROLES TÁCTILES -->
+<div id="touchControls" style="display:none;">
+  <div class="touch-btn" id="btnLeft">◀</div>
+  <div class="touch-btn" id="btnShoot">★</div>
+  <div class="touch-btn" id="btnMega">⚡</div>
+  <div class="touch-btn" id="btnRight">▶</div>
+</div>
+
+<canvas id="gameCanvas" width="800" height="600"></canvas>
+
+<script>
+/* === TU JUEGO ORIGINAL, SIN CAMBIAR NADA, SOLO AGREGADO TOUCH === */
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+let keys = {};
+let started = false;
+
+/* Detectar celular */
+function isMobile() {
+  return /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+}
+
+/* Iniciar juego */
+function startGame(){
+  document.getElementById("startScreen").style.display = "none";
+  document.getElementById("hud").style.display = "block";
+
+  if(isMobile()){
+    document.getElementById("touchControls").style.display = "flex";
+  }
+
+  started = true;
+  gameLoop();
+}
+
+/* Teclado */
+window.addEventListener("keydown", e=>{
+  keys[e.key] = true;
+  if(!started && e.key === "Enter") startGame();
+});
+window.addEventListener("keyup", e=> keys[e.key] = false);
+
+/* TÁCTIL - botones */
+function bindTouchButton(id, onPress, onRelease){
+  const btn = document.getElementById(id);
+  btn.addEventListener("touchstart", e=>{
+    e.preventDefault();
+    onPress();
+  });
+  btn.addEventListener("touchend", e=>{
+    e.preventDefault();
+    onRelease();
+  });
+}
+
+/* Touch equivalencias */
+bindTouchButton("btnLeft", ()=> keys["ArrowLeft"]=true, ()=> keys["ArrowLeft"]=false);
+bindTouchButton("btnRight", ()=> keys["ArrowRight"]=true, ()=> keys["ArrowRight"]=false);
+bindTouchButton("btnShoot", ()=> keys[" "]=true, ()=> keys[" "]=false);
+bindTouchButton("btnMega", ()=> keys["x"]=true, ()=> keys["x"]=false);
+
+/* Touch para iniciar */
+document.getElementById("startScreen").addEventListener("touchstart", ()=>{
+  if(!started) startGame();
+});
+// Imágenes
+const shipImg = new Image(); shipImg.src = 'ship.png';
+const shipDamageImg = new Image(); shipDamageImg.src = 'shipdamage.png';
+const starImg = new Image(); starImg.src = 'star.png';
+const enemyImg = new Image(); enemyImg.src = 'enemy.png';
+const enemy2Img = new Image(); enemy2Img.src = 'enemy2.png';
+const badEnergyImg = new Image(); badEnergyImg.src = 'badenergy.png';
+const badEnergy2Img = new Image(); badEnergy2Img.src = 'badenergy2.png';
+const bombImg = new Image(); bombImg.src = 'bomb.png';
+const powerImg = new Image(); powerImg.src = 'power.png';
+const specialImg = new Image(); specialImg.src = 'specialpower.png';
+
+// 💥 MEGARAYO HEAL
+const megaHealImg = new Image();
+megaHealImg.src = 'megarayo.png';
+
+// Sonidos
+const soundShoot = new Audio('sound1.mp3');
+const soundHit = new Audio('sound2.mp3');
+const soundMega = new Audio('sound3.mp3');
+
+let started = false;
+let ship = {x:canvas.width/2-25, y:canvas.height-100, width:50, height:50, speed:6, damaged:false};
+let stars=[], enemies=[], enemies2=[], badShots=[], badShots2=[], bombs=[], powers=[], specials=[];
+
+// 💥 MEGARAYO HEAL array
+let megaHeals = [];
+
+let flashes=[], megaRay=null, megaTimer=0, keys={};
+let life=100, energy=100, score=0, canShoot=true, megaCount=0, enemiesKilled=0, gameWon=false;
+let waveTimer=0, waveActive=false;
+
+window.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if(!started && e.key === 'Enter') startGame();
+});
+window.addEventListener('keyup', e => keys[e.key] = false);
+
+function startGame(){
+  startScreen.style.display='none';
+  hud.style.display='block';
+  specialContainer.style.display='flex';
+  started=true;
+  gameLoop();
+}
+
+function collides(a,b){
+  return a.x<b.x+b.width && a.x+a.width>b.x && a.y<b.y+b.height && a.y+a.height>b.y;
+}
+
+function shoot(){
+  if(energy>0 && canShoot && !megaRay){
+    stars.push({x:ship.x+ship.width/2-5, y:ship.y, width:10, height:20});
+    energy-=10;
+    canShoot=false;
+    soundShoot.currentTime=0;
+    soundShoot.play();
+    setTimeout(()=>canShoot=true,300);
+  }
+}
+
+function shootMegaRay(){
+  if(megaCount>0 && !megaRay){
+    megaRay={x:ship.x+ship.width/2-10, y:0, width:20, height:canvas.height};
+    megaTimer=30;
+    megaCount--;
+    soundMega.currentTime=0;
+    soundMega.play();
+    updateMegaUI();
+  }
+}
+
+function updateMegaUI(){
+  specialIcon.style.display=megaCount>0?'block':'none';
+  megaCounter.textContent=megaCount;
+}
+
+function damageShip(amount){
+  life -= amount;
+  if(life < 0) life = 0;
+  shipImg.src = shipDamageImg.src;
+  setTimeout(()=>{ shipImg.src = 'ship.png'; },200);
+}
+
+function addFlash(x,y){
+  flashes.push({x, y, radius:30, alpha:1});
+}
+
+function spawnEnemy(){ enemies.push({x:Math.random()*750,y:-40,width:50,height:50,speed:2+Math.random()*2}); }
+function spawnEnemy2(){
+  const w=60, baseX=Math.random()*(canvas.width-w);
+  enemies2.push({x:baseX, baseX, y:-60, width:w, height:60, speed:1.5+Math.random()*2, z:Math.random()*Math.PI*2, amplitude:30+Math.random()*60, oscSpeed:0.04+Math.random()*0.08});
+}
+function spawnBomb(){ bombs.push({x:Math.random()*750,y:-30,width:40,height:40,speed:3}); }
+function spawnPower(){ powers.push({x:Math.random()*740,y:-40,width:60,height:60,speed:2}); }
+function spawnSpecial(){ specials.push({x:Math.random()*750,y:-30,width:60,height:60,speed:2}); }
+
+// 💥 MEGARAYO HEAL - spawn
+function spawnMegaHeal(){
+  megaHeals.push({x:Math.random()*740,y:-50,width:70,height:70,speed:2.5});
+}
+
+function update(){
+  if(!started) return;
+  if(life<=0){ gameOverDisplay.style.display='block'; return; }
+  if(gameWon) return;
+
+  // Movimiento del ship
+  if(keys['ArrowLeft']&&ship.x>0) ship.x-=ship.speed;
+  if(keys['ArrowRight']&&ship.x+ship.width<canvas.width) ship.x+=ship.speed;
+  if(keys['ArrowUp']&&ship.y>0) ship.y-=ship.speed;
+  if(keys['ArrowDown']&&ship.y+ship.height<canvas.height) ship.y+=ship.speed;
+  if(keys[' ']) shoot();
+  if(keys['x']) shootMegaRay();
+
+  stars.forEach(s=>s.y-=8);
+  stars=stars.filter(s=>s.y>-20);
+
+  enemies.forEach(e=>{ e.y+=e.speed; if(Math.random()<0.015) badShots.push({x:e.x+20,y:e.y+50,width:10,height:20,speed:4}); });
+  enemies2.forEach(e=>{ e.y+=e.speed; e.z+=e.oscSpeed; e.x=e.baseX+Math.sin(e.z)*e.amplitude; if(Math.random()<0.02) badShots2.push({x:e.x+e.width/2-6,y:e.y+e.height,width:12,height:24,speed:6}); });
+  [badShots,badShots2,bombs,powers,specials,megaHeals].forEach(arr=>arr.forEach(o=>o.y+=o.speed));
+
+  // --- COLISIONES ---
+  enemies = enemies.filter(e=>{ let hit = stars.some(s=>collides(s,e)); if(hit){ score+=10; enemiesKilled++; soundHit.currentTime=0; soundHit.play(); addFlash(e.x+e.width/2,e.y+e.height/2); } return !hit; });
+  enemies2 = enemies2.filter(e=>{ let hit = stars.some(s=>collides(s,e)); if(hit){ score+=20; enemiesKilled++; soundHit.currentTime=0; soundHit.play(); addFlash(e.x+e.width/2,e.y+e.height/2); } return !hit; });
+
+  if(megaRay){
+    megaTimer--;
+    enemies=enemies.filter(e=>{ if(collides(e,megaRay)){ score+=50; enemiesKilled++; addFlash(e.x+e.width/2,e.y+e.height/2); return false; } return true; });
+    enemies2=enemies2.filter(e=>{ if(collides(e,megaRay)){ score+=80; enemiesKilled++; addFlash(e.x+e.width/2,e.y+e.height/2); return false; } return true; });
+    if(megaTimer<=0) megaRay=null;
+  }
+
+  enemies.forEach(e=>{ if(collides(ship,e)) damageShip(10); });
+  enemies2.forEach(e=>{ if(collides(ship,e)) damageShip(12); });
+  badShots.forEach(b=>{ if(collides(ship,b)) damageShip(5); });
+  badShots2.forEach(b=>{ if(collides(ship,b)) damageShip(8); });
+  bombs.forEach(b=>{ if(collides(ship,b)) damageShip(15); });
+
+  powers = powers.filter(p=>{ if(collides(ship,p)){ energy = Math.min(100, energy+30); soundShoot.play(); return false; } return true; });
+  specials = specials.filter(s=>{ if(collides(ship,s)){ megaCount++; soundShoot.play(); updateMegaUI(); return false; } return true; });
+
+  // 💥 MEGARAYO HEAL - efecto de curación
+  megaHeals = megaHeals.filter(m=>{
+    if(collides(ship,m)){
+      life = Math.min(100, life+25);
+      soundShoot.currentTime = 0
+      soundShoot.play () 
+      addFlash(m.x+m.width/2,m.y+m.height/2); 
+      return false;
+    }
+    return true;
+  });
+
+  flashes.forEach(f=>{ f.alpha-=0.05; f.radius+=2; });
+  flashes=flashes.filter(f=>f.alpha>0);
+
+  if(enemiesKilled>=30){ winScreen.style.display='block'; gameWon=true; }
+
+  lifeBar.style.width=life+'%';
+  energyBar.style.width=energy+'%';
+  scoreDisplay.textContent='Puntaje: '+score;
+  killsDisplay.textContent=enemiesKilled;
+
+  // Spawns aleatorios
+  if(Math.random()<0.02 && !waveActive) spawnEnemy();
+  if(Math.random()<0.006 && !waveActive) spawnEnemy2();
+  if(Math.random()<0.005) spawnBomb();
+  if(Math.random()<0.002) spawnPower();
+  if(Math.random()<0.004) spawnSpecial();
+
+  // 💥 MEGARAYO HEAL - baja frecuencia
+  if(Math.random()<0.001) spawnMegaHeal();
+
+  waveTimer++;
+  if(waveTimer>600){
+    for(let i=0;i<10;i++) spawnEnemy();
+    for(let j=0;j<3;j++) spawnEnemy2();
+    waveTimer=0;
+  }
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  stars.forEach(s=>ctx.drawImage(starImg,s.x,s.y,s.width,s.height));
+  enemies.forEach(e=>ctx.drawImage(enemyImg,e.x,e.y,e.width,e.height));
+  enemies2.forEach(e=>ctx.drawImage(enemy2Img,e.x,e.y,e.width,e.height));
+  badShots.forEach(b=>ctx.drawImage(badEnergyImg,b.x,b.y,b.width,b.height));
+  badShots2.forEach(b=>ctx.drawImage(badEnergy2Img,b.x,b.y,b.width,b.height));
+  bombs.forEach(b=>ctx.drawImage(bombImg,b.x,b.y,b.width,b.height));
+  powers.forEach(p=>ctx.drawImage(powerImg,p.x,p.y,p.width,p.height));
+  specials.forEach(s=>ctx.drawImage(specialImg,s.x,s.y,s.width,s.height));
+
+  // 💥 MEGARAYO HEAL - dibujo
+  megaHeals.forEach(m=>ctx.drawImage(megaHealImg,m.x,m.y,m.width,m.height));
+
+  // Destellos
+  flashes.forEach(f=>{
+    let grad=ctx.createRadialGradient(f.x,f.y,0,f.x,f.y,f.radius);
+    grad.addColorStop(0,`rgba(255,255,255,${f.alpha})`);
+    grad.addColorStop(0.3,`rgba(0,255,255,${f.alpha*0.8})`);
+    grad.addColorStop(1,`rgba(0,0,0,0)`);
+    ctx.fillStyle=grad;
+    ctx.beginPath();
+    ctx.arc(f.x,f.y,f.radius,0,Math.PI*2);
+    ctx.fill();
+  });
+
+  if(megaRay){
+    let shake=Math.random()*4-2;
+    let grad=ctx.createLinearGradient(megaRay.x,0,megaRay.x+megaRay.width,canvas.height);
+    grad.addColorStop(0,'rgba(0,255,255,0.7)');
+    grad.addColorStop(0.5,'rgba(255,255,255,0.9)');
+    grad.addColorStop(1,'rgba(0,255,255,0.7)');
+    ctx.fillStyle=grad;
+    ctx.shadowBlur=25;
+    ctx.shadowColor='cyan';
+    ctx.fillRect(megaRay.x+shake,0,megaRay.width+Math.random()*4-2,canvas.height);
+    ctx.shadowBlur=0;
+  }
+
+  ctx.drawImage(shipImg,ship.x,ship.y,ship.width,ship.height);
+}
+
+function gameLoop(){
+  update();
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+</script>
+</body>
+</html>
+
+
+</script>
+</body>
+</html>
